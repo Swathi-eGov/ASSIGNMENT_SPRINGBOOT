@@ -1,27 +1,22 @@
 package com.example.jdbc.springboot.assignmnet.controller;
 
-
 import java.util.ArrayList;
 import java.util.List;
-
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.CrossOrigin;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
-import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
-
 import com.example.jdbc.springboot.assignmnet.model.User;
 import com.example.jdbc.springboot.assignmnet.model.UserSearchCriteria;
 import com.example.jdbc.springboot.assignmnet.repository.UserRepository;
-
 
 @CrossOrigin(origins = "http://localhost:8080")
 @RestController
@@ -29,118 +24,111 @@ import com.example.jdbc.springboot.assignmnet.repository.UserRepository;
 
 public class UserController {
 
-  @Autowired
-  UserRepository userRepository;
+	@Autowired
+	UserRepository userRepository;
 
-  @GetMapping("/_searchusers")
-  public ResponseEntity<List<User>> getAllUsers(@RequestParam(required = false) String mobileNumber) {
-    try {
-      List<User> users = new ArrayList<User>();
+	@GetMapping("/_search")
+	public ResponseEntity<List<User>> getAllUsers(@RequestParam(required = false) boolean isActive) {
+		try {
+			List<User> users = new ArrayList<User>();
+			userRepository.findAll().forEach(users::add);
+			if (users.isEmpty()) {
+				return new ResponseEntity<>(HttpStatus.NO_CONTENT);
+			}
+			return new ResponseEntity<>(users, HttpStatus.OK);
+		} catch (Exception e) {
+			return new ResponseEntity<>(null, HttpStatus.INTERNAL_SERVER_ERROR);
+		}
+	}
 
-      if (mobileNumber == null)
-        userRepository.findAll().forEach(users::add);
-      else
-        userRepository.findByMobileNumber(mobileNumber);
+	@GetMapping("/_searchuser")
+	public ResponseEntity<User> getUser(@RequestBody UserSearchCriteria usersearchcriteria) {
+		User user = userRepository.findByserachcriteria(usersearchcriteria.getId(), usersearchcriteria.getIsActive());
+		if (user == null) {
+			return new ResponseEntity<>(HttpStatus.NOT_FOUND);
+		}
+		return ResponseEntity.ok(user);
+	}
 
-      if (users.isEmpty()) {
-        return new ResponseEntity<>(HttpStatus.NO_CONTENT);
-      }
+	@GetMapping("/active-users")
+	public ResponseEntity<List<User>> getActiveUsers() {
+		try {
+			List<User> activeUsers = userRepository.findActiveUsers();
+			if (activeUsers.isEmpty()) {
+				return new ResponseEntity<>(HttpStatus.NO_CONTENT);
+			}
+			return new ResponseEntity<>(activeUsers, HttpStatus.OK);
+		} catch (Exception e) {
+			return new ResponseEntity<>(null, HttpStatus.INTERNAL_SERVER_ERROR);
+		}
+	}
 
-      return new ResponseEntity<>(users, HttpStatus.OK);
-    } catch (Exception e) {
-      return new ResponseEntity<>(null, HttpStatus.INTERNAL_SERVER_ERROR);
-    }
-  }
+	@GetMapping("/inactive-users")
+	public ResponseEntity<List<User>> getInactiveUsers() {
+		try {
+			List<User> inactiveUsers = userRepository.findInactiveUsers();
+			if (inactiveUsers.isEmpty()) {
+				return new ResponseEntity<>(HttpStatus.NO_CONTENT);
+			}
+			return new ResponseEntity<>(inactiveUsers, HttpStatus.OK);
+		} catch (Exception e) {
+			return new ResponseEntity<>(null, HttpStatus.INTERNAL_SERVER_ERROR);
+		}
+	}
 
-  @GetMapping("/_searchbyid/{id}")
-  public ResponseEntity<User> getUserById(@PathVariable("id") int id) {
-    User user = userRepository.findById(id);
+	@PostMapping("/_create")
+	public ResponseEntity<?> createUsers(@RequestBody List<User> usersList) {
+		List<String> errorMessages = userRepository.save(usersList);
 
-    if (user != null) {
-      return new ResponseEntity<>(user, HttpStatus.OK);
-    } else {
-      return new ResponseEntity<>(HttpStatus.NOT_FOUND);
-    }
-  }
+		if (errorMessages.isEmpty()) {
+			return new ResponseEntity<>("Users were created successfully.", HttpStatus.CREATED);
+		} else {
+			return new ResponseEntity<>(errorMessages, HttpStatus.BAD_REQUEST);
+		}
+	}
 
-  
-  @GetMapping(value = "/_searchbyidandmobilenumber")
-  public ResponseEntity<User> searchUser(@RequestBody UserSearchCriteria userSearchCriteria){
-      try{
-          User user;
+	@PutMapping("/_update")
+	public ResponseEntity<List<User>> updateUsers(@RequestBody List<User> userList) {
+		try {
+			List<User> updatedUsers = new ArrayList<>();
 
-          if(userSearchCriteria.getId() != 0){
-              user = userRepository.findById(userSearchCriteria.getId());
-          }
-         
-          user = userRepository.findByMobileNumber(userSearchCriteria.getMobileNumber());    
-     
-          if(user == null){
-              System.out.println("User not found");
-              return null;
-          }
+			for (User user : userList) {
+				User existingUser = userRepository.findByserachcriteria(user.getId(), user.getIsActive());
+				if (existingUser == null) {
+					return new ResponseEntity<>(HttpStatus.NOT_FOUND);
+				}
+				User updatedUser = userRepository.update(user);
+				updatedUsers.add(updatedUser);
+			}
 
-          return new ResponseEntity<User>(user,HttpStatus.OK);
-      }catch (Exception e){
-          System.out.println("Error in searching the user: "+ e.toString());
-          return null;
-      }
-  }
-  
-  
-  @PostMapping("/_createuser")
-  public ResponseEntity<String> createUser(@RequestBody User user) {
-    try {
-      userRepository.save(new User (user.getId(),user.getName(), user.getGender(), user.getMobileNumber(),user.getAddress()));
-      return new ResponseEntity<>("User was created successfully.", HttpStatus.CREATED);
-    } catch (Exception e) {
-    	e.printStackTrace();
-      return new ResponseEntity<>(null, HttpStatus.INTERNAL_SERVER_ERROR);
-    }
-  }
+			return new ResponseEntity<>(updatedUsers, HttpStatus.OK);
+		} catch (Exception e) {
+			System.out.println("Cannot update users: " + e.toString());
+			return new ResponseEntity<>(HttpStatus.INTERNAL_SERVER_ERROR);
+		}
+	}
 
-  
-  @PutMapping("/_updateuser")
-  public ResponseEntity<User> updateUser(@RequestBody User user){
-      try{
-          User _User = userRepository.findById(user.getId());
+	@DeleteMapping("/_deleteuser")
+	public ResponseEntity<String> deleteUser(@RequestBody UserSearchCriteria usersearchcriteria) {
+		try {
+			int result = userRepository.deleteBysearchcriteria(usersearchcriteria.getId(),
+					usersearchcriteria.getIsActive());
+			if (result == 0) {
+				return new ResponseEntity<>("Cannot find User with id=" + usersearchcriteria.getId(), HttpStatus.OK);
+			}
+			return new ResponseEntity<>("User was deleted successfully.", HttpStatus.OK);
+		} catch (Exception e) {
+			return new ResponseEntity<>("Cannot delete user.", HttpStatus.INTERNAL_SERVER_ERROR);
+		}
+	}
 
-          if(_User == null){
-              System.out.println("User not found");
-              return null;
-          }
-          User user1 = userRepository.update(user);
-          return new ResponseEntity<User>(user1,HttpStatus.OK);
-      }catch (Exception e){
-          System.out.println("Cannot update user: " + e.toString());
-          return new ResponseEntity<User>(new User(),HttpStatus.NOT_FOUND);
-      }
-  }
-  
-  
-
-  @DeleteMapping("/_deleteuserbyid/{id}")
-  public ResponseEntity<String> deleteUser(@PathVariable("id") int id) {
-    try {
-      int result = userRepository.deleteById(id);
-      if (result == 0) {
-        return new ResponseEntity<>("Cannot find User with id=" + id, HttpStatus.OK);
-      }
-      return new ResponseEntity<>("User was deleted successfully.", HttpStatus.OK);
-    } catch (Exception e) {
-      return new ResponseEntity<>("Cannot delete user.", HttpStatus.INTERNAL_SERVER_ERROR);
-    }
-  }
-
-  @DeleteMapping("/_deleteusers")
-  public ResponseEntity<String> deleteAllUsers() {
-    try {
-      int numRows = userRepository.deleteAll();
-      return new ResponseEntity<>("Deleted " + numRows + " User(s) successfully.", HttpStatus.OK);
-    } catch (Exception e) {
-      return new ResponseEntity<>("Cannot delete users.", HttpStatus.INTERNAL_SERVER_ERROR);
-    }
-
-  }
-
+	@DeleteMapping("/_delete")
+	public ResponseEntity<String> deleteAllUsers() {
+		try {
+			int numRows = userRepository.deleteAll();
+			return new ResponseEntity<>("Deleted " + numRows + " User(s) successfully.", HttpStatus.OK);
+		} catch (Exception e) {
+			return new ResponseEntity<>("Cannot delete users.", HttpStatus.INTERNAL_SERVER_ERROR);
+		}
+	}
 }

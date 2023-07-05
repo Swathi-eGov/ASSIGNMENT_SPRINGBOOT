@@ -1,25 +1,27 @@
 package com.example.jdbc.springboot.assignmnet.repository;
 
-
 import java.util.List;
+import java.util.UUID;
 
 import com.example.jdbc.springboot.assignmnet.model.User;
 
-
 public interface UserRepository {
-  int save(User user);
 
-  User update(User user);
+	boolean isUnique(String name, String mobileNumber);
 
-  User findById(int id);
+	List<String> save(List<User> user);
 
-  int deleteById(int id);
+	User update(User user);
 
-  List<User> findAll();
+	User findByserachcriteria(UUID id, boolean isActive);
 
-  User findByMobileNumber(String mobilenumber);
-  
-  User findByIdAndMobileNumber(int id,String mobilenumber);
+	int deleteBysearchcriteria(UUID id, boolean isActive);
 
-  int deleteAll();
+	List<User> findAll();
+
+	List<User> findInactiveUsers();
+
+	List<User> findActiveUsers();
+
+	int deleteAll();
 }
