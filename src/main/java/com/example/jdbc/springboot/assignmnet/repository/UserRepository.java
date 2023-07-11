@@ -4,12 +4,13 @@ import java.util.List;
 import java.util.UUID;
 
 import com.example.jdbc.springboot.assignmnet.model.User;
+import com.fasterxml.jackson.core.JsonProcessingException;
 
 public interface UserRepository {
 
 	boolean isUnique(String name, String mobileNumber);
 
-	List<String> save(List<User> user);
+	int save(User user) throws JsonProcessingException;
 
 	User update(User user);
 

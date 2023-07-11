@@ -5,6 +5,7 @@ import java.util.List;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.web.bind.annotation.CrossOrigin;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -14,9 +15,14 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.client.RestTemplate;
+import com.example.jdbc.springboot.assignmnet.model.Address;
 import com.example.jdbc.springboot.assignmnet.model.User;
 import com.example.jdbc.springboot.assignmnet.model.UserSearchCriteria;
+import com.example.jdbc.springboot.assignmnet.producer.KafkaProducer;
 import com.example.jdbc.springboot.assignmnet.repository.UserRepository;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 
 @CrossOrigin(origins = "http://localhost:8080")
 @RestController
@@ -26,6 +32,19 @@ public class UserController {
 
 	@Autowired
 	UserRepository userRepository;
+
+	private final KafkaTemplate<String, Object> kafkaTemplate;
+
+	@Autowired
+	ObjectMapper objectMapper;
+
+	@Autowired
+	private KafkaProducer kafkaProducer;
+
+	@Autowired
+	public UserController(KafkaTemplate<String, Object> kafkaTemplate) {
+		this.kafkaTemplate = kafkaTemplate;
+	}
 
 	@GetMapping("/_search")
 	public ResponseEntity<List<User>> getAllUsers(@RequestParam(required = false) boolean isActive) {
@@ -77,31 +96,55 @@ public class UserController {
 	}
 
 	@PostMapping("/_create")
-	public ResponseEntity<?> createUsers(@RequestBody List<User> usersList) {
-		List<String> errorMessages = userRepository.save(usersList);
-
-		if (errorMessages.isEmpty()) {
-			return new ResponseEntity<>("Users were created successfully.", HttpStatus.CREATED);
-		} else {
-			return new ResponseEntity<>(errorMessages, HttpStatus.BAD_REQUEST);
+	public ResponseEntity<List<String>> createUser(@RequestBody List<User> users) {
+		List<String> createStatus = new ArrayList<>();
+		for (User user : users) {
+			if (!(userRepository.isUnique(user.getName(), user.getMobileNumber()))) {
+				createStatus.add("User with the same name " + user.getName() + " and mobile number "
+						+ user.getMobileNumber() + " already exists");
+			} else {
+				try {
+					RestTemplate restTemplate = new RestTemplate();
+					String apiUrl = "https://random-data-api.com/api/v2/users?size=1";
+					ResponseEntity<String> response = restTemplate.getForEntity(apiUrl, String.class);
+					String addressJson = null;
+					String apiResponse = response.getBody();
+					{
+						if (apiResponse != null) {
+							JsonNode rootNode = objectMapper.readTree(apiResponse);
+							JsonNode addressNode = rootNode.get("address");
+							Address address = objectMapper.treeToValue(addressNode, Address.class);
+							user.setAddress(address);
+							System.out.println(user.getAddress().toString());
+						}
+					}
+					kafkaProducer.userCreation(user);
+					createStatus.add("User was created successfully with name " + user.getName());
+				} catch (Exception e) {
+					e.printStackTrace();
+					return new ResponseEntity<>(null, HttpStatus.INTERNAL_SERVER_ERROR);
+				}
+			}
 		}
+		return new ResponseEntity<>(createStatus, HttpStatus.CREATED);
 	}
 
 	@PutMapping("/_update")
-	public ResponseEntity<List<User>> updateUsers(@RequestBody List<User> userList) {
+	public ResponseEntity<List<String>> updateUsers(@RequestBody List<User> userList) {
 		try {
-			List<User> updatedUsers = new ArrayList<>();
+			List<String> updateStatus = new ArrayList<>();
 
 			for (User user : userList) {
 				User existingUser = userRepository.findByserachcriteria(user.getId(), user.getIsActive());
 				if (existingUser == null) {
-					return new ResponseEntity<>(HttpStatus.NOT_FOUND);
+					updateStatus.add("User with id " + user.getId() + " does not exist");
+					continue;
 				}
-				User updatedUser = userRepository.update(user);
-				updatedUsers.add(updatedUser);
+				kafkaProducer.userUpdation(user);
+				updateStatus.add("User with id " + user.getId() + " was updated successfully");
 			}
 
-			return new ResponseEntity<>(updatedUsers, HttpStatus.OK);
+			return new ResponseEntity<>(updateStatus, HttpStatus.OK);
 		} catch (Exception e) {
 			System.out.println("Cannot update users: " + e.toString());
 			return new ResponseEntity<>(HttpStatus.INTERNAL_SERVER_ERROR);
@@ -109,14 +152,19 @@ public class UserController {
 	}
 
 	@DeleteMapping("/_deleteuser")
-	public ResponseEntity<String> deleteUser(@RequestBody UserSearchCriteria usersearchcriteria) {
+	public ResponseEntity<String> deleteUser(@RequestBody UserSearchCriteria userSearchCriteria) {
+		String res = "";
 		try {
-			int result = userRepository.deleteBysearchcriteria(usersearchcriteria.getId(),
-					usersearchcriteria.getIsActive());
-			if (result == 0) {
-				return new ResponseEntity<>("Cannot find User with id=" + usersearchcriteria.getId(), HttpStatus.OK);
+			User existingUser = userRepository.findByserachcriteria(userSearchCriteria.getId(),
+					userSearchCriteria.getIsActive());
+			if (existingUser == null) {
+				res = "User with ID " + userSearchCriteria.getId() + " does not exist";
+				return new ResponseEntity<>(res, HttpStatus.OK);
 			}
-			return new ResponseEntity<>("User was deleted successfully.", HttpStatus.OK);
+
+			kafkaProducer.userDeletion(userSearchCriteria);
+			res = "Deleted user with ID " + userSearchCriteria.getId() + " successfully";
+			return new ResponseEntity<>(res, HttpStatus.OK);
 		} catch (Exception e) {
 			return new ResponseEntity<>("Cannot delete user.", HttpStatus.INTERNAL_SERVER_ERROR);
 		}
@@ -125,10 +173,11 @@ public class UserController {
 	@DeleteMapping("/_delete")
 	public ResponseEntity<String> deleteAllUsers() {
 		try {
-			int numRows = userRepository.deleteAll();
-			return new ResponseEntity<>("Deleted " + numRows + " User(s) successfully.", HttpStatus.OK);
+			kafkaProducer.allUsersDeletion();
+			return new ResponseEntity<>("Deleted all users successfully .", HttpStatus.OK);
 		} catch (Exception e) {
 			return new ResponseEntity<>("Cannot delete users.", HttpStatus.INTERNAL_SERVER_ERROR);
 		}
 	}
+
 }

@@ -6,14 +6,10 @@ import java.util.UUID;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.dao.EmptyResultDataAccessException;
 import com.example.jdbc.springboot.assignmnet.mapper.UserRowMapper;
-import com.example.jdbc.springboot.assignmnet.model.Address;
-import org.springframework.http.ResponseEntity;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Repository;
-import org.springframework.web.client.RestTemplate;
 import com.example.jdbc.springboot.assignmnet.model.User;
 import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
 @Repository
@@ -21,6 +17,9 @@ public class JdbcUserRepository implements UserRepository {
 
 	@Autowired
 	private JdbcTemplate jdbcTemplate;
+
+	@Autowired
+	ObjectMapper objectMapper;
 
 	// TO CHECK WHETHER THE USER WITH SAME NAME AND MOBILENUMBER EXISTS
 	@Override
@@ -32,52 +31,12 @@ public class JdbcUserRepository implements UserRepository {
 
 	// TO CREATE A LIST OF USERS IF NOT EXISTED BEFORE
 	@Override
-	public List<String> save(List<User> userList) {
-		List<String> errorMessages = new ArrayList<>();
-
-		for (User user : userList) {
-			String name = user.getName();
-			String mobileNumber = user.getMobileNumber();
-
-			// Check if the combination of name and mobile number already exists
-			if (isUnique(name, mobileNumber)) {
-				UUID uuid = UUID.randomUUID();
-				String addressJson;
-				RestTemplate restTemplate = new RestTemplate();
-				String apiUrl = "https://random-data-api.com/api/v2/users?size=1";
-				ResponseEntity<String> response = restTemplate.getForEntity(apiUrl, String.class);
-				String responseBody = response.getBody();
-				ObjectMapper objectMapper = new ObjectMapper();
-
-				try {
-					JsonNode rootNode = objectMapper.readTree(responseBody);
-					JsonNode addressNode = rootNode.get("address");
-					Address address = objectMapper.convertValue(addressNode, Address.class);
-					user.setAddress(address);
-					addressJson = objectMapper.writeValueAsString(user.getAddress());
-					System.out.println(addressJson);
-				} catch (JsonProcessingException e) {
-					errorMessages.add("Failed to process JSON for user: " + user.getName());
-					continue; // Move on to the next user
-				}
-
-				long currentTime = System.currentTimeMillis();
-				user.setCreatedTime(currentTime);
-
-				jdbcTemplate.update(
-						"INSERT INTO users (id, name, gender, mobilenumber, address, isActive, createdTime) "
-								+ "VALUES (?, ?, ?, ?, cast(? as jsonb), ?, ?)",
-						new Object[] { uuid, user.getName(), user.getGender(), user.getMobileNumber(), addressJson,
-								user.getIsActive(), currentTime });
-			} else {
-				String errorMessage = String.format(
-						"User with the same name and mobile number already exists: Name: %s, Mobile Number: %s",
-						user.getName(), user.getMobileNumber());
-				errorMessages.add(errorMessage);
-			}
-		}
-
-		return errorMessages;
+	public int save(User user) throws JsonProcessingException {
+		String addressJson = objectMapper.writeValueAsString(user.getAddress());
+		System.out.println(addressJson);
+		return jdbcTemplate.update(
+				"INSERT INTO users (name, gender, mobileNumber, address, isActive) VALUES( ?, ?, ?, ?::json, ?)",
+				user.getName(), user.getGender(), user.getMobileNumber(), addressJson, user.getIsActive());
 	}
 
 	// TO SEARCH FOR A USER WITH GIVEN ID AND ACTIVE STATUS
@@ -148,8 +107,9 @@ public class JdbcUserRepository implements UserRepository {
 	// TO DELETE A USER WITH GIVEN ID AND ACTIVE STATUS
 	@Override
 	public int deleteBysearchcriteria(UUID id, boolean isActive) {
-		return jdbcTemplate.update("DELETE FROM users WHERE id=? AND isActive=?", id, isActive);
-	};
+		return jdbcTemplate.update("DELETE FROM users WHERE id = ? AND isActive = ?", id, isActive);
+
+	}
 
 	// TO GET ALL THE USERS
 	@Override
@@ -163,4 +123,5 @@ public class JdbcUserRepository implements UserRepository {
 	public int deleteAll() {
 		return jdbcTemplate.update("DELETE from users");
 	}
+
 }
